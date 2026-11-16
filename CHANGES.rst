@@ -13,6 +13,12 @@ Unreleased
 -   Use modern packaging metadata with ``pyproject.toml`` instead of ``setup.cfg``.
     :pr:`1793`
 -   Use ``flit_core`` instead of ``setuptools`` as build backend.
+-   ``ChainableUndefined`` no longer reports an ``__html__`` representation.
+    A value reached by chained access on a missing variable is not known to
+    be safe, so it must not claim to be already escaped. The ``is escaped``
+    test, escape-aware filters, and the autoescape output stage now
+    consistently treat it as unescaped data. Known-safe values such as
+    ``Markup`` are unaffected.
 
 
 Version 3.1.6

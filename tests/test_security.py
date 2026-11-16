@@ -1,11 +1,13 @@
 import pytest
 from markupsafe import escape
+from markupsafe import Markup
 
 from jinja2 import Environment
 from jinja2.exceptions import SecurityError
 from jinja2.exceptions import TemplateRuntimeError
 from jinja2.exceptions import TemplateSyntaxError
 from jinja2.nodes import EvalContext
+from jinja2.runtime import ChainableUndefined
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 from jinja2.sandbox import SandboxedEnvironment
 from jinja2.sandbox import unsafe
@@ -200,3 +202,49 @@ class TestStringFormatMap:
 
         with pytest.raises(SecurityError):
             t.render()
+
+
+class TestChainableUndefinedEscape:
+    """A value reached by chained access on a missing variable must not
+    report itself as already escaped. The ``is escaped`` test, filters,
+    and the autoescape output stage all rely on the ``__html__`` protocol,
+    so an undefined value must not provide it.
+    """
+
+    env = Environment(undefined=ChainableUndefined, autoescape=True)
+
+    def test_chained_undefined_is_not_escaped(self):
+        t = self.env.from_string("{{ missing.attr['key'].deeper is escaped }}")
+        assert t.render() == "False"
+
+    def test_chained_undefined_has_no_html(self):
+        chained = ChainableUndefined(name="missing").attr["key"]
+        assert not hasattr(chained, "__html__")
+        # escape must treat it as untrusted data, same as any object
+        # without an HTML representation.
+        assert escape(chained) == escape(str(chained))
+
+    def test_chained_undefined_output(self):
+        t = self.env.from_string("{{ missing.attr['key'] }}")
+        assert t.render() == ""
+
+    def test_chained_undefined_filters(self):
+        t = self.env.from_string("{{ missing.attr|e }}|{{ missing.attr|forceescape }}")
+        assert t.render() == "|"
+
+    def test_join_with_undefined_separator_escapes_items(self):
+        t = self.env.from_string("{{ users|join(missing.sep) }}")
+        assert t.render(users=["<b>a</b>", "<i>c</i>"]) == (
+            "&lt;b&gt;a&lt;/b&gt;&lt;i&gt;c&lt;/i&gt;"
+        )
+
+    def test_markup_wrapping_undefined(self):
+        # Regression test: Markup() probes for __html__, which must not
+        # raise or mark the undefined value safe.
+        assert str(Markup(ChainableUndefined())) == ""
+
+    def test_known_safe_values_unaffected(self):
+        t = self.env.from_string("{{ safe_value }}|{{ safe_value is escaped }}")
+        assert t.render(safe_value=Markup("<b>x</b>")) == "<b>x</b>|True"
+        t = self.env.from_string("{{ '<i>y</i>'|safe }}")
+        assert t.render() == "<i>y</i>"
